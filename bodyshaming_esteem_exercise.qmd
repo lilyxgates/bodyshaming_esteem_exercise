@@ -1,0 +1,924 @@
+---
+title: "Analyzing How Self-Esteem and Hearing Negative Body Talk Influences Exercise Motivation"
+author: "Lily Gates"
+date: "05/19/2025"
+---
+
+# Importing Libraries
+```{r}
+# Computations
+library(psych)  # Calculate alpha and omega, along with specific item analysis
+library(car)  # Calculate non-constant variance score test
+
+# Data Organization
+library(dplyr)  # Stats and visualizations
+library(tidyr)  # Handles data and organizes it
+library(broom)  # Allows extraction of statistics to later be used in code
+
+# Data Visualization
+library(ggplot2)  # Create the majority of data visualizations
+library(patchwork)  # Create grids of multiple plots
+library(jtools) # Make figures APA format
+library(ggcorrplot)  # Plot correlations
+library(interactions)  # Help interpret and visualize interactions in regression models
+```
+
+# Reading in Data
+```{r}
+survey <- read.csv("bodyshaming_esteem_exercise_data.csv")
+```
+
+# Summarize Data
+```{r}
+# Obtain means and other descriptions of variables in data 
+summary(survey)
+
+# See data types and variable heads (also visible in global enviornment)
+str(survey)
+
+# See column names
+colnames(survey)
+```
+
+# Cleaning Data
+Rename columns cleanly (may have been misread into R)
+Drop rows with NAs
+```{r}
+# Rename columns
+colnames(survey)[1] <- "RSE_Q1"
+colnames(survey)[3] <- "RSE_Q3"
+colnames(survey)
+
+# Remove all missing values listwise
+survey <- na.omit(survey)
+summary(survey)
+```
+
+# Reverse Coding
+```{r}
+# Reverse score negatively worded items: 0 = highest SE, 5 = lowest SE
+max_val <- 5
+
+survey$RSE_Q2 <- max_val - survey$RSE_Q2_RS
+survey$RSE_Q4 <- max_val - survey$RSE_Q4_RS
+survey$RSE_Q7 <- max_val - survey$RSE_Q7_RS
+```
+
+# Organizing Data
+Create vectors and subsequent dataframes for survey question categories
+```{r}
+# Self-Esteem - Moderator
+RSE_items <- c("RSE_Q1", "RSE_Q2", "RSE_Q3", "RSE_Q4", "RSE_Q5", "RSE_Q6", "RSE_Q7")
+RSE_data <- survey[, RSE_items]
+
+# Intrinsic Motivation for Exercise - Outcome (1 of 2)
+intrinsic_motiv_items <- c("I_MEW_Q1", "I_MEW_Q2", "I_PH_Q1", "I_PA_Q1", "I_PA_Q2", "I_SC_Q1", "I_SC_Q2")
+intrinsic_motiv_data <- survey[, intrinsic_motiv_items]
+
+# Extrinsic Motivation for Exercise - Outcome (2 of 2)
+extrinsic_motiv_items <- c("E_SP_Q1", "E_SP_Q2", "E_AD_Q1", "E_PA_Q3")
+extrinsic_motiv_data <- survey[, extrinsic_motiv_items]
+
+# Self-Directed Body Shaming (Overhearing negative body talk) - Predictor
+bodyshame_items <- c("BS_BI_Q1", "BS_BI_Q2", "BS_WL_Q1", "BS_WL_Q2", "BS_EX_Q1", "BS_EX_Q2", "BS_SC_Q1")
+bodyshame_data <- survey[, bodyshame_items]
+
+```
+
+# Analyzing Sample Demographics
+Age concentration: Most respondents are in the younger age groups, especially 18-20 and 21-25, with very few in older groups (26-30, 31-40, 41-60).
+
+Race groups: The most represented races are White/Caucasian, Black/African American, and Asian/Pacific Islander, with smaller counts for Hispanic/Latino, Other, and Prefer not to say.
+
+Gender distribution: Across most groups, Woman tends to have the highest count, followed by Man, then Non-binary, and very few or zero for Prefer not to say.
+
+**Recode Demographic Variables**
+```{r}
+# Recode 'sex'
+survey$sex <- factor(survey$sex, levels = 1:5, labels = c(
+  "Male", "Female", "Intersex", "Other", "Prefer not to say"
+))
+
+# Recode 'gender'
+survey$gender <- factor(survey$gender, levels = 1:5, labels = c(
+  "Man", "Woman", "Non-binary", "Other", "Prefer not to say"
+))
+
+# Recode 'race'
+survey$race <- factor(survey$race, levels = 1:9, labels = c(
+  "White/Caucasian", 
+  "Black/African American", 
+  "Hispanic or Latino", 
+  "Middle Eastern/North African", 
+  "Asian/Pacific Islander", 
+  "Indigenous American/Alaskan Native", 
+  "Native Hawaiian/Pacific Islander", 
+  "Other", 
+  "Prefer not to say"
+))
+
+```
+
+**Summarize Sample Demographics**
+```{r}
+
+# Summary for Sex (counts & %)
+sex_summary <- survey %>%
+  count(sex) %>%
+  mutate(percent = round(n / sum(n) * 100, 1))
+
+# Summary for Gender (counts & %)
+gender_summary <- survey %>%
+  count(gender) %>%
+  mutate(percent = round(n / sum(n) * 100, 1))
+
+# Summary for Race (counts & %)
+race_summary <- survey %>%
+  count(race) %>%
+  mutate(percent = round(n / sum(n) * 100, 1))
+
+# Summary for Age (mean, SD, min, max)
+age_summary <- survey %>%
+  summarize(
+    mean_age = mean(age, na.rm = TRUE),
+    sd_age = sd(age, na.rm = TRUE),
+    min_age = min(age, na.rm = TRUE),
+    max_age = max(age, na.rm = TRUE)
+  )
+
+# Print results
+print(sex_summary)
+print(gender_summary)
+print(race_summary)
+print(age_summary)
+
+```
+
+**Contingency Table: Age group, race, gender**
+```{r}
+survey <- survey %>%
+  mutate(age_group = cut(age, breaks = c(17, 20, 25, 30, 40, 60, Inf),
+                         labels = c("18-20", "21-25", "26-30", "31-40", "41-60", "61+"),
+                         right = TRUE))
+
+# Filter or remove NAs if necessary
+survey_clean <- survey %>%
+  filter(!is.na(age_group), !is.na(race), !is.na(gender))
+
+# Count combinations by age_group, race, and gender
+gender_counts <- survey_clean %>%
+  count(age_group, race, gender)
+
+# Pivot wider to have gender columns with counts
+gender_wide <- gender_counts %>%
+  pivot_wider(names_from = gender, values_from = n, values_fill = 0)
+
+print(gender_wide)
+
+```
+
+```{r}
+# Age and Gender (Stacked Bar Graph)
+
+# Create age groups if not done yet
+survey <- survey %>%
+  mutate(age_group = cut(age, breaks = c(17, 20, 25, 30, 40, 60, Inf),
+                         labels = c("18-20", "21-25", "26-30", "31-40", "41-60", "61+"),
+                         right = TRUE))
+
+# Filter out NAs for plotting
+plot_data <- survey %>%
+  filter(!is.na(age_group), !is.na(gender))
+
+# Plot with counts and labels centered in each stack
+ggplot(plot_data, aes(x = age_group, fill = gender)) +
+  geom_bar() +
+  geom_text(stat = "count", aes(label = ..count..), position = position_stack(vjust = 0.5), color = "white", size = 3, fontface = 'bold') +
+  labs(
+    title = "Distribution of Age Groups by Gender with Counts",
+    x = "Age Group",
+    y = "Count",
+    fill = "Gender"
+  ) +
+  theme_apa()
+```
+
+```{r}
+# Age and Gender (Stacked Bar Graph)
+
+# Make sure age_group exists
+survey <- survey %>%
+  mutate(age_group = cut(age, breaks = c(17, 20, 25, 30, 40, 60, Inf),
+                         labels = c("18-20", "21-25", "26-30", "31-40", "41-60", "61+"),
+                         right = TRUE))
+
+# Filter to valid data
+plot_data <- survey %>%
+  filter(!is.na(age_group), !is.na(race))
+
+# Plot stacked bar of age groups filled by race, with counts inside segments
+ggplot(plot_data, aes(x = age_group, fill = race)) +
+  geom_bar() +
+  geom_text(stat = "count", aes(label = ..count..), position = position_stack(vjust = 0.5), color = "white", size = 3, fontface = 'bold') +
+  labs(
+    title = "Distribution of Age Groups by Race with Counts",
+    x = "Age Group",
+    y = "Count",
+    fill = "Race"
+  ) +
+  theme_apa()
+
+```
+
+# Estinate Chrombach's alpha - internal consistency/reliability
+Note: Good for unidimensional scales and where items are roughly equivalent
+
+```{r}
+# Calculating Chrombach's alpha
+psych::alpha(RSE_data)
+psych::alpha(intrinsic_motiv_data)
+psych::alpha(extrinsic_motiv_data)
+psych::alpha(bodyshame_data)
+```
+
+# Estinate McDonald's Omega - internal consistency/reliability
+Note: Better estimate than Chronbach's alpha because it accounts for the factor structure of items
+
+```{r}
+# Calculating McDonald's Omega
+psych::omega(RSE_data, plot = FALSE)
+psych::omega(intrinsic_motiv_data, plot = FALSE)
+psych::omega(extrinsic_motiv_data, plot = FALSE)
+psych::omega(bodyshame_data, plot = FALSE)
+```
+
+# Interpretation of Chrombach's alpha and McDonald's Omega on Survey Items
+
+**RSE (RSE_data)**
+The self-esteem scale shows strong internal consistency with a Cronbach’s alpha of 0.87. If RSE_Q7 is dropped, it would increase the alpha to 0.88 — this suggests RSE_Q7 may be the weakest item (least consistent with the rest).
+
+The Omega Total value of 0.92 indicates excellent overall reliability, supporting the use of the total score as a highly reliable measure of self-esteem. The Omega Hierarchical of 0.81 suggests that a large proportion of variance is explained by a single general factor, indicating the scale is largely uni-dimensional and the total score effectively reflects the underlying construct of self-esteem.
+
+*Intrinsic Motivation for Exercise (intrinsic_motiv_data)*
+“The intrinsic motivation scale demonstrates good internal consistency with a Cronbach’s alpha of 0.85. If any item would be dropped, it would reduce the reliability, indicating that all items contribute to good internal consistency.
+
+The Omega Total value of 0.91 indicates excellent overall reliability, supporting the use of the total score as a reliable measure of intrinsic motivation. The Omega Hierarchical of 0.67 suggests that while a general intrinsic motivation factor accounts for a substantial amount of variance, some multi-dimensionality remains, reflecting possible sub-factors within the scale.
+
+*Extrinsic Motivation for Exercise (extrinsic_motiv_data)*
+The extrinsic motivation scale has acceptable internal consistency with a Cronbach’s alpha of 0.72. If E_PA_Q3 is dropped, it would increase the alpha to 0.79 - this suggests E_PA_Q3 may be the weakest item (least consistent with the rest).
+
+The Omega Total value of 0.82 indicates good overall reliability, suggesting the total score can be used as a reliable measure of extrinsic motivation. The Omega Hierarchical value of 0.69 indicates a moderate amount of variance is explained by a general factor, implying some multi-dimensionality but still sufficient uni-dimensionality to justify a total score.
+
+**Self-Directed Body Shaming (bodshame_data)**
+The bodyshame scale has good internal consistency with a Cronbach’s alpha of 0.87. If any item dropped, the alpha would either be unchanged or lowered - this suggests that all items contribute to good internal consistency
+
+The Omega Total value of 0.92 indicates excellent overall reliability, suggesting the total score can be used as a very reliable measure of exposure to self-directed body-shaming. The Omega Hierarchical value of 0.71 indicates a substantial amount of variance is explained by a general factor, implying the scale is mostly unidimensional with some multidimensionality, but still supports using the total score as a meaningful composite measure.
+
+# Creating Total Scores for Each Scale
+Since all scales had high Omega Total values ( > 0.80 ), it would be appropriate and meaningful to create total scores for each scale. Given that all items have been properly coded and reverse coded as needed
+
+However, since there are different amount of items per scale, the totals will also be normalized and saved in separate columns.
+
+```{r}
+# Creating columns that hold the total scores for each scale
+survey$RSE_total <- rowSums(RSE_data, na.rm = TRUE)
+survey$intrinsic_motiv_total <- rowSums(intrinsic_motiv_data, na.rm = TRUE)
+survey$extrinsic_motiv_total <- rowSums(extrinsic_motiv_data, na.rm = TRUE)
+survey$bodyshame_total <- rowSums(bodyshame_data, na.rm = TRUE)
+
+# Standardize total scores (mean = 0, sd = 1)
+survey$RSE_total_z <- scale(survey$RSE_total)
+survey$intrinsic_motiv_total_z <- scale(survey$intrinsic_motiv_total)
+survey$extrinsic_motiv_total_z <- scale(survey$extrinsic_motiv_total)
+survey$bodyshame_total_z <- scale(survey$bodyshame_total)
+```
+
+# Modeling: Testing Assumptions
+Before conducting any modeling, I will check that it meets assumptions.
+
+**Testing Heteroscedisity**
+
+```{r}
+model_extrinsic <- lm(extrinsic_motiv_total_z ~ bodyshame_total_z, data = survey)
+plot(model_extrinsic, which = 1)  # Residuals vs. Fitted
+ncvTest(model_extrinsic)
+
+model_intrinsic <- lm(intrinsic_motiv_total_z ~ bodyshame_total_z, data = survey)
+plot(model_intrinsic, which = 1)  # Residuals vs. Fitted
+ncvTest(model_intrinsic)
+```
+
+**Testing Linearity of variables**
+
+```{r}
+# Scatterplots
+p1 <- ggplot(survey, aes(x = bodyshame_total_z, y = extrinsic_motiv_total_z)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "lm", se = TRUE, color = "cadetblue3") +
+  labs(
+    title = "Body shame and\nextrinsic motivation",
+    x = "Body shame\n(standardized)",
+    y = "Extrinsic motivation\n(standardized)"
+  ) +
+  theme_apa()
+
+p2 <- ggplot(survey, aes(x = bodyshame_total_z, y = intrinsic_motiv_total_z)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "lm", se = TRUE, color = "steelblue3") +
+  labs(
+    title = "Body shame and\nintrinsic motivation",
+    x = "Body shame\n(standardized)",
+    y = "Intrinsic motivation\n(standardized)"
+  ) +
+  theme_apa()
+
+p3 <- ggplot(survey, aes(x = RSE_total_z, y = extrinsic_motiv_total_z)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "lm", se = TRUE, color = "goldenrod3") +
+  labs(
+    title = "Self-esteem and\nextrinsic motivation",
+    x = "Self-esteem\n(standardized)",
+    y = "Extrinsic motivation\n(standardized)"
+  ) +
+  theme_apa()
+
+p4 <- ggplot(survey, aes(x = RSE_total_z, y = intrinsic_motiv_total_z)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "lm", se = TRUE, color = "sienna3") +
+  labs(
+    title = "Self-esteem and\nintrinsic motivation",
+    x = "Self-esteem\n(standardized)",
+    y = "Intrinsic motivation\n(standardized)"
+  ) +
+  theme_apa()
+
+# Combine plots in 2x2 grid
+combined_plot <- (p1 | p2) / (p3 | p4)
+
+# Display combined plot
+print(combined_plot)
+```
+
+**Normality of variables**
+
+## Testing Normality Visually: Q-Q Plot and Histogram
+Visual inspections of Q-Q plots and histograms for the standardized total scores of intrinsic motivation, extrinsic motivation, body shame, and self-esteem suggested approximate normality. The Q-Q plots showed data points closely following the reference line, and the histograms displayed relatively symmetric, bell-shaped distributions.
+
+```{r}
+# Q-Q Plots
+qq1 <- ggplot(survey, aes(sample = intrinsic_motiv_total_z)) +
+  stat_qq() +
+  stat_qq_line() +
+  ggtitle("Intrinsic motivation\n(standardized)") +
+  theme_apa()
+
+qq2 <- ggplot(survey, aes(sample = extrinsic_motiv_total_z)) +
+  stat_qq() +
+  stat_qq_line() +
+  ggtitle("Extrinsic motivation\n(standardized)") +
+  theme_apa()
+
+qq3 <- ggplot(survey, aes(sample = bodyshame_total_z)) +
+  stat_qq() +
+  stat_qq_line() +
+  ggtitle("Body shame\n(standardized)") +
+  theme_apa()
+
+qq4 <- ggplot(survey, aes(sample = RSE_total_z)) +
+  stat_qq() +
+  stat_qq_line() +
+  ggtitle("Self-esteem\n(standardized)") +
+  theme_apa()
+
+# Combine in a 2x2 grid
+qq_grid <- (qq1 | qq2) / (qq3 | qq4)
+
+print(qq_grid)
+```
+
+```{r}
+# Histograms
+hist1 <- ggplot(survey, aes(x = extrinsic_motiv_total_z)) +
+  geom_histogram(binwidth = 0.5, fill = "darkslategray3", color = "black") +
+  ggtitle("Extrinsic motivation\n(standardized)") +
+  theme_apa()
+
+hist2 <- ggplot(survey, aes(x = intrinsic_motiv_total_z)) +
+  geom_histogram(binwidth = 0.5, fill = "darkolivegreen3", color = "black") +
+  ggtitle("Intrinsic motivation\n(standardized)") +
+  theme_apa()
+
+hist3 <- ggplot(survey, aes(x = bodyshame_total_z)) +
+  geom_histogram(binwidth = 0.5, fill = "goldenrod3", color = "black") +
+  ggtitle("Body shame\n(standardized)") +
+  theme_apa()
+
+hist4 <- ggplot(survey, aes(x = RSE_total_z)) +
+  geom_histogram(binwidth = 0.5, fill = "lightpink3", color = "black") +
+  ggtitle("Self-esteem\n(standardized)") +
+  theme_apa()
+
+# Combine in a 2x2 grid
+
+hist_grid <- (hist1 | hist2) / (hist3 | hist4)
+
+print(hist_grid)
+```
+
+## Testing Normality: Shapiro-Wilk Test
+Shapiro-Wilk tests were conducted to assess the normality of the standardized total scores. Results indicated that the distributions of intrinsic motivation (W = 0.98, p = .43), extrinsic motivation (W = 0.97, p = .08), body shame (W = 0.98, p = .34), and self-esteem (W = 0.98, p = .48) did not significantly deviate from normality. These findings support the assumption of normality required for subsequent Pearson correlation and linear regression analyses.
+
+```{r}
+# Run Shapiro-Wilk tests and store results
+shapiro_intrinsic <- shapiro.test(survey$intrinsic_motiv_total_z)
+shapiro_extrinsic <- shapiro.test(survey$extrinsic_motiv_total_z)
+shapiro_bodyshame <- shapiro.test(survey$bodyshame_total_z)
+shapiro_RSE <- shapiro.test(survey$RSE_total_z)
+
+# Create a data frame with results
+shapiro_results_df <- data.frame(
+  Variable = c("Intrinsic motivation", "Extrinsic motivation", "Body shame", "Self-esteem"),
+  W = c(shapiro_intrinsic$statistic, shapiro_extrinsic$statistic, shapiro_bodyshame$statistic, shapiro_RSE$statistic),
+  p_value = c(shapiro_intrinsic$p.value, shapiro_extrinsic$p.value, shapiro_bodyshame$p.value, shapiro_RSE$p.value)
+)
+
+print(shapiro_results_df)
+```
+
+# Modeling Assumption Testing: Summary of Findings and Interpretations
+
+**Summary**
+
+  1. Normality of Variables (Shapiro-Wilk Test)
+All key variables — intrinsic motivation, extrinsic motivation, body shame, and self-esteem — do not significantly deviate from normality.This supports the assumption that the predictors and outcomes are approximately normally distributed, favorable for parametric methods like linear regression.
+
+  2. Residual Normality (Q-Q Plots)
+Residuals from linear regression models mostly align with normality except for slight deviations at extreme values. This indicates the normality of residuals assumption is reasonably met, allowing valid inference from the models.
+
+  3. Linearity (Scatterplots and Visual Inspection)
+Scatterplots of body shame and self-esteem against motivation outcomes do not show clear linear relationships. This suggests the linearity assumption of regression may be violated, meaning a simple linear model might not fully capture the relationships.
+
+  4. Heteroscedasticity (ncvTest)
+For the model predicting extrinsic motivation, heteroscedasticity is present (p = 0.043), indicating non-constant variance of residuals. For intrinsic motivation, no evidence of heteroscedasticity (p = 0.54). Heteroscedasticity can lead to inefficient estimates and biased standard errors, impacting hypothesis testing.
+
+  5. Transformations
+Attempts at transforming variables (log, square root, Box-Cox) increased skewness and did not improve linearity or heteroscedasticity. Given normality tests and residual diagnostics, transformations are not strongly recommended based on normality concerns alone.
+
+**Interpretations**
+
+The data distributions are appropriate for regression regarding normality. However, non-linear relationships between body shame/self-esteem and motivation are likely present, so simple linear models may underfit.In addition,the moderation modeling with self-esteem should carefully consider the potential non-linearity and heteroscedasticity.
+
+Heteroscedasticity in one model suggests a need for more robust variance modeling. Although I am not familiar with these, certain techniques such as robust standard errors (also called “heteroscedasticity-consistent” or White’s standard errors) and weighted least squares could address this.
+
+# Modeling: Correlation
+
+Pearson’s correlation was used to assess linear relationships under the assumption of approximate normality. Given slight skewness and possible non-linear associations, Spearman’s rank correlation was also computed as a robust non-parametric alternative to detect monotonic relationships.
+
+**Findings and Interpretations**
+Pearson and Spearman correlation coefficients were calculated to examine the relationships between exposure to overheard negative body talk (bodyshame_total_z), intrinsic motivation (intrinsic_motiv_total_z), extrinsic motivation (extrinsic_motiv_total_z), and self-esteem (RSE_total_z).
+
+Pearson correlations showed that exposure to negative body talk was moderately positively correlated with extrinsic motivation to exercise, r(N) = .37, p < .05, but was not significantly correlated with intrinsic motivation, r = –.003, p > .05. Exposure was negatively correlated with self-esteem, r = –.31, p < .05.
+
+Intrinsic motivation was moderately positively correlated with extrinsic motivation, r = .44, p < .05, and weakly positively correlated with self-esteem, r = .17, though this latter association was not statistically significant.
+
+Self-esteem showed a small negative correlation with extrinsic motivation, r = –.13, which was not statistically significant.
+
+Spearman correlations were consistent in direction and magnitude, with exposure to negative body talk positively correlated with extrinsic motivation, ρ = .41, and negatively correlated with self-esteem, ρ = –.29. Correlations between intrinsic motivation and other variables remained weak and nonsignificant.
+
+These results suggest that greater exposure to overheard negative body talk is associated with higher extrinsic motivation to exercise and lower self-esteem, while intrinsic motivation is largely unrelated to both exposure and self-esteem.
+
+
+```{r, out.width="100%", out.height="auto"}
+# Select variables
+vars <- survey[, c("bodyshame_total_z", "intrinsic_motiv_total_z", "extrinsic_motiv_total_z", "RSE_total_z")]
+
+# Define nicer display names
+display_names <- c(
+  intrinsic_motiv_total_z = "Intrinsic Motivation",
+  extrinsic_motiv_total_z = "Extrinsic Motivation",
+  bodyshame_total_z = "Body Shame",
+  RSE_total_z = "Self-Esteem"
+)
+
+# Compute correlations first
+pearson_corr <- cor(vars, method = "pearson")
+spearman_corr <- cor(vars, method = "spearman")
+
+# Reorder correlation matrices rows and columns to match display_names order
+ordered_vars <- names(display_names)
+
+pearson_corr <- pearson_corr[ordered_vars, ordered_vars]
+spearman_corr <- spearman_corr[ordered_vars, ordered_vars]
+
+# Rename rows and columns with display names
+rownames(pearson_corr) <- display_names[rownames(pearson_corr)]
+colnames(pearson_corr) <- display_names[colnames(pearson_corr)]
+
+rownames(spearman_corr) <- display_names[rownames(spearman_corr)]
+colnames(spearman_corr) <- display_names[colnames(spearman_corr)]
+
+# Define color palette
+my_palette <- c("navy", "white", "red4")
+
+# Create ggcorrplot objects
+p_pearson <- ggcorrplot(pearson_corr, hc.order = FALSE, type = "full",
+                        lab = TRUE, lab_size = 2, method = "square",
+                        colors = my_palette,
+                        title = "Pearson Correlation Matrix")
+
+p_spearman <- ggcorrplot(spearman_corr, hc.order = FALSE, type = "full",
+                         lab = TRUE, lab_size = 2, method = "square",
+                         colors = my_palette,
+                         title = "Spearman Correlation Matrix")
+
+# Adding APA theme
+apa_theme_custom <- theme(
+  panel.background = element_blank(),
+  panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(),
+  axis.ticks = element_blank(),
+  axis.text.x = element_text(color = "black", size = 8),
+  axis.text.y = element_text(color = "black", size = 8, angle = 0, hjust = 1),
+  plot.title = element_text(size = 12, face = "bold", hjust = 0.5)
+)
+
+p_pearson <- p_pearson + apa_theme_custom + labs(x = NULL, y = NULL)
+p_spearman <- p_spearman + apa_theme_custom + labs(x = NULL, y = NULL)
+
+# Combine side by side with patchwork
+combined_plot <- p_pearson + p_spearman + plot_layout(ncol = 2)
+
+# Print combined plot
+print(combined_plot)
+
+# Print correlations
+print(pearson_corr)
+print(spearman_corr)
+```
+
+# Model: Regression Between Overhearing Self-Deprecating Bodyshaming and Exercise Motivations (Linear and Loess)
+
+In this analysis, I included both linear and loess regression lines to visualize the relationships between standardized body shame scores and two types of exercise motivation: intrinsic and extrinsic. The linear regression line provides a simple, interpretable model of the association, assuming a constant rate of change across the range of body shame scores. This allows me to assess whether there is a consistent upward or downward trend in motivation as body shame increases.
+
+However, I also incorporated a loess regression line to explore potential nonlinearities in the data. Loess is a nonparametric, locally weighted smoothing method that is particularly useful when we suspect the relationship may not be strictly linear. It is especially appropriate here because preliminary diagnostics, including scatterplots and histogram inspections, suggested some deviations from linearity in the data. By including loess fits, I can detect more subtle or complex trends in how motivation changes at different levels of body shame, which a linear model might otherwise obscure.
+
+This dual approach helps ensure a more nuanced interpretation. For example, in the plot of extrinsic motivation versus body shame, there appears to be a noticeable positive slope in the linear regression line, indicating that higher body shame is associated with greater extrinsic motivation to exercise. The loess curve generally follows this trend but may reveal slight curvature or changes in slope strength at different ranges of body shame. In contrast, for intrinsic motivation versus body shame, the linear regression line is nearly flat, suggesting little to no linear relationship. Here, the loess fit further supports this by showing minimal curvature, reinforcing that intrinsic motivation may be relatively unaffected by increases in body shame.
+
+Using both regression types allows me to describe the direction and shape of each relationship more comprehensively, strengthening both the clarity and accuracy of my visual analysis.
+
+```{r}
+# Plot 1: Body shame vs Extrinsic motivation
+p1 <- ggplot(survey, aes(x = bodyshame_total_z, y = extrinsic_motiv_total_z)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(aes(color = "Linear Fit"), method = "lm", se = FALSE, linetype = "dotted") +
+  geom_smooth(aes(color = "Loess Fit"), method = "loess", se = TRUE) +
+  scale_color_manual(name = "Smoothing Method",
+                     values = c("Linear Fit" = "blue", "Loess Fit" = "red")) +
+  labs(title = "Extrinsic Motivation\nvs. Body Shame",
+       x = "Body Shame (standardized)",
+       y = "Extrinsic Motivation (standardized)") +
+  theme_apa() +
+  theme(legend.position = "none")
+
+# Plot 2: Body shame vs Intrinsic motivation
+p2 <- ggplot(survey, aes(x = bodyshame_total_z, y = intrinsic_motiv_total_z)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(aes(color = "Linear Fit"), method = "lm", se = FALSE, linetype = "dotted") +
+  geom_smooth(aes(color = "Loess Fit"), method = "loess", se = TRUE) +
+  scale_color_manual(name = "Smoothing Method",
+                     values = c("Linear Fit" = "blue", "Loess Fit" = "red")) +
+  labs(title = "Intrinsic Motivation\nvs. Body Shame",
+       x = "Body Shame (standardized)",
+       y = "Intrinsic Motivation (standardized)") +
+  theme_apa() +
+  theme(legend.position = "right")
+
+# Combine side by side with shared legend on the right
+combined_plot <- p1 + p2 + plot_layout(ncol = 2, guides = "collect") & theme(legend.position = "right")
+
+
+print(combined_plot)
+
+
+```
+
+# Understanding the Linear Model
+```{r}
+lm_extrinsic <- lm(extrinsic_motiv_total_z ~ bodyshame_total_z, data = survey)
+summary(lm_extrinsic)
+
+lm_intrinsic <- lm(intrinsic_motiv_total_z ~ bodyshame_total_z, data = survey)
+summary(lm_intrinsic)
+```
+
+# Understanding the Loees Model
+```{r}
+loess_extrinsic <- loess(extrinsic_motiv_total_z ~ bodyshame_total_z, data = survey)
+summary(loess_extrinsic)
+
+loess_intrinsic <- loess(intrinsic_motiv_total_z ~ bodyshame_total_z, data = survey)
+summary(loess_extrinsic <- loess(extrinsic_motiv_total_z ~ bodyshame_total_z, data = survey)
+)
+```
+
+# Modeling: Moderation Analysis (Linear Regression)
+
+I also explored whether self-esteem (RSE_total_z) moderates the relationship between body shame and exercise motivation. Based on prior literature and theoretical rationale, I expected that individuals with higher self-esteem might be less influenced by body shame when it comes to their exercise motivations. By including an interaction term in my regression models, I was able to test whether the strength or direction of the relationship between body shame and motivation varies depending on self-esteem levels.
+
+To better understand how self-esteem influences the relationship between body shame and exercise motivation, I conducted moderation analyses. I ran two separate linear regression models including an interaction term between body shame and self-esteem (RSE_total_z). I visualized the interactions using interact_plot from the jtools package, plotting how the relationship varied at low, average, and high levels of self-esteem. This helped me explore whether self-esteem buffered or amplified the motivational impact of body shame.
+
+**Extrinsic Motivation Model**
+I tested whether self-esteem (RSE_total_z) moderated the relationship between body shame (bodyshame_total_z) and extrinsic motivation to exercise (extrinsic_motiv_total_z). The interaction model was significant overall, F(3, 58) = 3.06, p = .035, explaining about 14% of the variance (adjusted R² = .092).
+
+Body shame significantly predicted extrinsic motivation, b = 0.36, t(58) = 2.78, p = .007, 95% CI [0.10, 0.62], indicating that higher body shame was associated with greater extrinsic motivation.
+
+Self-esteem did not significantly predict extrinsic motivation, b = -0.02, t(58) = -0.13, p = .90, 95% CI [-0.27, 0.24].
+
+The interaction between body shame and self-esteem was not significant, b = -0.02, t(58) = -0.13, p = .90, 95% CI [-0.27, 0.24], indicating that self-esteem did not significantly moderate the effect of body shame on extrinsic motivation.
+
+**Intrinsic Motivation Model**
+Moderation Analysis Predicting Intrinsic Motivation
+A similar model predicting intrinsic motivation (intrinsic_motiv_total_z) was not significant overall, F(3, 58) = 0.64, p = .59, with a very small explained variance (adjusted R² = -0.02).
+
+Neither body shame, b = 0.05, t(58) = 0.38, p = .71, 95% CI [-0.22, 0.32],
+
+Nor self-esteem, b = 0.19, t(58) = 1.38, p = .17, 95% CI [-0.06, 0.44],
+
+Nor their interaction, b = -0.01, t(58) = -0.10, p = .92, 95% CI [-0.28, 0.25], significantly predicted intrinsic motivation.
+
+**Interpretation**
+These results suggest that higher body shame is associated with higher extrinsic motivation to exercise, regardless of self-esteem levels. Self-esteem neither directly influenced extrinsic motivation nor moderated the body shame–extrinsic motivation relationship. For intrinsic motivation, neither body shame nor self-esteem showed significant effects.
+
+# Measuring the Effect of Self-Esteem as a Moderator
+
+```{r}
+# Moderation Model: Body Shame x Self-Esteem predicting Extrinsic Motivation
+mod_extrinsic <- lm(extrinsic_motiv_total_z ~ bodyshame_total_z * RSE_total_z, data = survey)
+summary(mod_extrinsic)
+
+# Moderation Model: Body Shame x Self-Esteem predicting Intrinsic Motivation
+mod_intrinsic <- lm(intrinsic_motiv_total_z ~ bodyshame_total_z * RSE_total_z, data = survey)
+summary(mod_intrinsic)
+```
+
+# Interaction Plots to Analyze Self-Esteem as a Moderator
+
+```{r}
+
+p1 <- interact_plot(mod_extrinsic,
+                    pred = bodyshame_total_z,
+                    modx = RSE_total_z,
+                    plot.points = TRUE,
+                    interval = TRUE,
+                    main.title = "Body Shame → \nExtrinsic Motivation\nby Self-Esteem",
+                    x.label = "Body Shame (standardized)",
+                    y.label = "Extrinsic Motivation (standardized)",
+                    modx.values = "plus-minus") + theme_apa()
+
+p2 <- interact_plot(mod_intrinsic,
+                    pred = bodyshame_total_z,
+                    modx = RSE_total_z,
+                    plot.points = TRUE,
+                    interval = TRUE,
+                    main.title = "Body Shame → \nIntrinsic Motivation\nby Self-Esteem",
+                    x.label = "Body Shame (standardized)",
+                    y.label = "Intrinsic Motivation (standardized)",
+                    modx.values = "plus-minus") + theme_apa()
+
+# Combine plots side by side
+p1 + p2 + plot_layout(guides = "collect")
+```
+
+# Combining Demographics with Predictor, Moderator and Outcome Variables
+
+This if for exploratory data analysis to inspire questions and potentially guide future steps in the data analysis process.
+I felt like there was greater complexity to the model because I did not garner as clear cut results as I would have expected.
+I thought that perhaps by introducing sex assigned at birth, it may help group results in a way that revealed underlying patterns.
+
+To make things easiest on myself, given my time constraint and technical abilities, I wanted to limit myself to sex-assigned at birth. This had the fewest NA and the fewest different groupings (male, female, and prefer not to say).
+
+**Exercise Motivation vs Hearing Bodyshaming**
+Regression color-coded by sex assigned at birth
+
+Exposure to body-shaming is significantly associated with higher extrinsic motivation to exercise — for both males and females.
+
+Intrinsic motivation is not significantly affected by body-shaming exposure, regardless of sex.
+
+This supports the hypothesis that overheard self-deprecating comments (or self-directed body-shaming) function more as external social cues, driving appearance-focused or socially driven exercise.
+
+```{r}
+# Two scatterplots with regression
+
+p1 <- ggplot(survey, aes(x = extrinsic_motiv_total_z, y = bodyshame_total_z, color = sex)) +
+  geom_point(alpha = 0.7, size = 3) +
+  geom_smooth(method = "lm", aes(group = sex, color = sex), se = FALSE) + 
+  labs(
+    title = "Extrinsic Motivation\nvs Bodyshaming Score",
+    x = "Extrinsic Motivation Score",
+    y = "Bodyshaming Score"
+  ) +
+  theme_apa() +
+  theme(legend.position = "right")
+
+p2 <- ggplot(survey, aes(x = intrinsic_motiv_total_z, y = bodyshame_total_z, color = sex)) +
+  geom_point(alpha = 0.7, size = 3) +
+  geom_smooth(method = "lm", aes(group = sex, color = sex), se = FALSE) + 
+  labs(
+    title = "Intrinsic Motivation\nvs Bodyshaming Score",
+    x = "Intrinsic Motivation Score",
+    y = "Bodyshaming Score"
+  ) +
+  theme_apa() +
+  theme(legend.position = "right")
+
+# Combine and share legend
+(p1 + p2) + 
+  plot_layout(guides = "collect") & 
+  theme(legend.position = "right")
+```
+
+# Seperate Regressions Filtered by Sex-Assigned at Birth
+For Male participants:
+- Extrinsic motivation predicted by bodyshame_total_z:
+  - Estimate = 0.682, p = 0.0179
+  - Interpretation: There is a significant positive association — as exposure to bodyshaming increases, extrinsic motivation to exercise also increases for males.
+  - Effect size is moderate (about 0.68 SD increase in extrinsic motivation per SD increase in bodyshaming).
+- Intrinsic motivation predicted by bodyshame_total_z:
+  - Estimate = 0.172, p = 0.525 (not significant)
+  - Interpretation: No significant relationship between bodyshaming exposure and intrinsic motivation among males.
+
+For Female participants:
+- Extrinsic motivation predicted by bodyshame_total_z:
+  - Estimate = 0.403, p = 0.00363
+  - Interpretation: Significant positive association as well — increased bodyshaming exposure is associated with higher extrinsic motivation to exercise for females, but the effect size (0.40) is smaller than for males.
+- Intrinsic motivation predicted by bodyshame_total_z:
+  - Estimate = 0.0673, p = 0.64 (not significant)
+  - Interpretation: No significant relationship between bodyshaming and intrinsic motivation among females either.
+
+Overall summary:
+Exposure to bodyshaming is significantly associated with increased extrinsic motivation to exercise for both males and females, with a stronger effect for males in this sample.
+
+No evidence that bodyshaming predicts intrinsic motivation for either sex.
+
+This suggests bodyshaming might be pushing people more towards external reasons (appearance, social pressure) rather than internal enjoyment or wellness for exercise motivation.
+
+```{r}
+mod_extrinsic_male <- lm(extrinsic_motiv_total_z ~ bodyshame_total_z * RSE_total_z, 
+                        data = filter(survey, sex == "Male"))
+
+mod_intrinsic_male <- lm(intrinsic_motiv_total_z ~ bodyshame_total_z * RSE_total_z, 
+                        data = filter(survey, sex == "Male"))
+
+mod_extrinsic_female <- lm(extrinsic_motiv_total_z ~ bodyshame_total_z * RSE_total_z, 
+                          data = filter(survey, sex == "Female"))
+
+mod_intrinsic_female <- lm(intrinsic_motiv_total_z ~ bodyshame_total_z * RSE_total_z, 
+                          data = filter(survey, sex == "Female"))
+
+```
+
+```{r}
+tidy_results_long <- survey %>%
+  filter(sex %in% c("Male", "Female")) %>%
+  group_by(sex) %>%
+  summarise(
+    extrinsic = list(tidy(lm(extrinsic_motiv_total_z ~ bodyshame_total_z, data = cur_data()))),
+    intrinsic = list(tidy(lm(intrinsic_motiv_total_z ~ bodyshame_total_z, data = cur_data())))
+  ) %>%
+  pivot_longer(cols = c(extrinsic, intrinsic), names_to = "model_type", values_to = "model") %>%
+  unnest(model)
+
+print(tidy_results_long)
+```
+
+# Moderation: How Self-Esteem Moderates Exercise Motivation Among Genders 
+
+I ran separate linear models for extrinsic and intrinsic motivation, for males and females, testing body shame, self-esteem (RSE), and their interaction predicting motivation.
+
+Each group (male/female × extrinsic/intrinsic motivation) has 4 rows:intercept, main effect of bodyshame_total_z (overhearing body shaming), main effect of RSE_total_z (self-esteem), and interaction effect between bodyshame_total_z and RSE_total_z.
+
+Findings:
+
+Male - Extrinsic Motivation
+For males’ extrinsic motivation, bodyshaming tends to increase motivation but not quite significant. Self-esteem doesn’t have a significant main or moderating effect.
+
+Male - Intrinsic Motivation
+No clear effects for intrinsic motivation among males. Interaction is not significant but hints at possible moderation.
+
+Female - Extrinsic Motivation
+Among females, bodyshaming exposure significantly predicts increased extrinsic motivation. Self-esteem does not moderate this effect.
+
+Female - Intrinsic Motivation
+Summary: No significant effects on intrinsic motivation for females, and no evidence of moderation.
+
+Overall Interpretation
+- Bodyshaming exposure predicts higher extrinsic motivation significantly for females and marginally for males.
+- Self-esteem (RSE_total_z) does not have a significant main effect nor moderates the relationship between bodyshaming and motivation for any group or motivation type.
+- No significant relationships or moderation found for intrinsic motivation in any sex.
+
+```{r}
+
+# Create a list of models with labels
+models_list <- list(
+  male_extrinsic = mod_extrinsic_male,
+  male_intrinsic = mod_intrinsic_male,
+  female_extrinsic = mod_extrinsic_female,
+  female_intrinsic = mod_intrinsic_female
+)
+
+# Tidy all models and bind into one dataframe
+model_results_df <- bind_rows(
+  lapply(names(models_list), function(name) {
+    tidy(models_list[[name]]) %>%
+      mutate(model = name)
+  }),
+  .id = "id"
+)
+
+# Separate the model label into sex and motivation type for clarity
+model_results_df <- model_results_df %>%
+  separate(model, into = c("sex", "motivation"), sep = "_")
+
+# View the dataframe
+print(model_results_df)
+
+```
+
+**Barplot Interaction Effects of Body Shame x Self-Esteem by Gender**
+The bar plot of interaction coefficients shows whether the interaction between body-shaming exposure and self-esteem significantly predicts motivation type (intrinsic or extrinsic) for each sex.
+
+In the data, the interaction terms appear small and mostly non-significant, suggesting that self-esteem may not strongly change how body-shaming affects motivation in a simple, uniform way.
+
+```{r}
+# Filter only interaction terms
+interaction_df <- model_results_df %>%
+  filter(term == "bodyshame_total_z:RSE_total_z")
+
+# Plot estimates with error bars
+ggplot(interaction_df, aes(x = motivation, y = estimate, fill = sex)) +
+  geom_col(position = position_dodge(width = 0.7), width = 0.6) +
+  geom_errorbar(aes(ymin = estimate - std.error, ymax = estimate + std.error),
+                position = position_dodge(width = 0.7), width = 0.2) +
+  labs(title = "Interaction Effects of Body Shame x Self-Esteem by Sex and Motivation",
+       x = "Motivation Type",
+       y = "Estimate (Interaction Term)",
+       fill = "Sex") +
+  theme_apa()
+```
+
+**Interaction Plots**
+Four graphs that show the relationship between body-shaming and motivation differs at low vs. high self-esteem levels across the sexes.
+
+This shows the practical pattern of effects—whether body-shaming is more strongly linked to motivation for people with low or high self-esteem, and whether this differs between intrinsic vs. extrinsic motivation or by assigned sex
+
+```{r}
+# Male extrinsic
+p1_male <- interact_plot(mod_extrinsic_male,
+                        pred = bodyshame_total_z,
+                        modx = RSE_total_z,
+                        plot.points = TRUE,
+                        interval = TRUE,
+                        main.title = "Male: Body Shame → \nExtrinsic Motivation\nby Self-Esteem",
+                        x.label = "Body Shame\n(standardized)",
+                        y.label = "Extrinsic Motivation\n(standardized)",
+                        modx.values = "plus-minus") + theme_apa()
+
+# Male intrinsic
+p2_male <- interact_plot(mod_intrinsic_male,
+                        pred = bodyshame_total_z,
+                        modx = RSE_total_z,
+                        plot.points = TRUE,
+                        interval = TRUE,
+                        main.title = "Male: Body Shame → \nIntrinsic Motivation\nby Self-Esteem",
+                        x.label = "Body Shame\n(standardized)",
+                        y.label = "Intrinsic Motivation\n(standardized)",
+                        modx.values = "plus-minus") + theme_apa()
+
+# Female extrinsic
+p1_female <- interact_plot(mod_extrinsic_female,
+                          pred = bodyshame_total_z,
+                          modx = RSE_total_z,
+                          plot.points = TRUE,
+                          interval = TRUE,
+                          main.title = "Female: Body Shame → \nExtrinsic Motivation\nby Self-Esteem",
+                          x.label = "Body Shame\n(standardized)",
+                          y.label = "Extrinsic Motivation\n(standardized)",
+                          modx.values = "plus-minus") + theme_apa()
+
+# Female intrinsic
+p2_female <- interact_plot(mod_intrinsic_female,
+                          pred = bodyshame_total_z,
+                          modx = RSE_total_z,
+                          plot.points = TRUE,
+                          interval = TRUE,
+                          main.title = "Female: Body Shame → \nIntrinsic Motivation\nby Self-Esteem",
+                          x.label = "Body Shame\n(standardized)",
+                          y.label = "Intrinsic Motivation\n(standardized)",
+                          modx.values = "plus-minus") + theme_apa()
+
+# Example: combine all four plots in a 2x2 grid
+(p1_male + p2_male) / (p1_female + p2_female)
+
+
+```
+
