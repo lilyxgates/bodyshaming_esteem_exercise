@@ -73,5 +73,5 @@ This study examines how exposure to overheard self-deprecating comments about bo
 * Only processed figures and summary statistics are included
 
 # Course & Attribution
-* Project for SURV400: Survey Methodology, Spring 2025
+* Project for SURV400 Fundamentals of Survey and Data Science, Spring 2025
 * Conducted at University of Maryland, College Park
